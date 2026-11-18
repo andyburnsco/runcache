@@ -1,0 +1,84 @@
+RunCache Migration Log
+======================
+
+This file is a HUMAN-MAINTAINED reference log, authored by the RunCache
+development team. It is NOT generated or written to by the plugin at runtime.
+
+Purpose
+-------
+To document the one-time legacy-settings migrations introduced across RunCache
+versions, for future maintainers troubleshooting upgrades. Runtime activity is
+reported by the normal RunCache logger (e.g. `wp-content/debug.log`), not here.
+
+--------------------------------------------------------------------------------
+Migration 1 — Legacy Cloudflare settings -> CDN Edge Cache settings
+Introduced in: RunCache 1.1.0+  (activation key: RUNCACHE_DB_VERSION = 1)
+--------------------------------------------------------------------------------
+
+WHAT IT DOES
+------------
+Copies legacy Cloudflare provider data into the single `runcache_edge_settings`
+option owned by RunCache\Core\Edge. The new model allows only ONE active edge
+provider (`edge_type`): 'cloudflare' (Cache Rules) or 'cloudflare-apo'.
+
+SOURCE (legacy, read-only, never modified)
+------------------------------------------
+  Cloudflare Cache (page cache provider):
+    active state   : runcache_page_cache_settings
+                     (enable truthy AND page_cache_type === 'cloudflare')
+    credentials    : runcache_cloudflare_settings
+                     (api_token, zone_id, auth_type, account_email)
+
+  Cloudflare APO (CDN-group provider):
+    active state   : runcache_cdn_settings
+                     (enable truthy AND cdn_type === 'cloudflare-apo')
+    credentials    : runcache_cdn_settings.provider['cloudflare-apo']
+                     (api_token, zone_id, auth_type, account_email, apo_enabled)
+
+DESTINATION (the only option written)
+-------------------------------------
+  runcache_edge_settings:
+    [
+      'enable'    => bool,
+      'edge_type' => 'cloudflare' | 'cloudflare-apo' | '',
+      'provider'  => [
+        'cloudflare'     => [api_token, zone_id, auth_type, account_email],
+        'cloudflare-apo' => [api_token, zone_id, auth_type, account_email, apo_enabled],
+      ],
+    ]
+
+RULES
+-----
+1. Pure data copy — status is preserved verbatim. A provider that was DISABLED
+   in legacy is imported DISABLED. Nothing is ever auto-enabled.
+2. Credentials are imported whenever a non-empty legacy credential record
+   exists, regardless of whether the provider was active or disabled.
+3. New-format data always wins: if runcache_edge_settings already contains edge
+   provider data, the whole migration is skipped so existing configuration is
+   never recomputed from legacy state.
+4. Silent: writes runcache_edge_settings directly (no hooks, no RunCloud sync,
+   no Cloudflare API calls, no cache-rule install/remove, no config.php / drop-in
+   changes).
+5. No-op when no legacy Cloudflare data exists (fresh installs / never used).
+
+STATUS DERIVATION (single active provider)
+------------------------------------------
+  Neither legacy active  -> enable=false, edge_type=''
+  Cloudflare only active -> enable=true, edge_type='cloudflare'
+  APO only active        -> enable=true, edge_type='cloudflare-apo'
+  Both active            -> enable=true, edge_type='cloudflare-apo' (APO wins)
+                           + a logged warning. Both credential records stored.
+
+TRIGGER
+-------
+Version-gated on `admin_init`: when stored `runcache_db_version` <
+RUNCACHE_DB_VERSION, run the migration, then store runcache_db_version.
+Per-site in multisite. Idempotent.
+
+VERIFICATION / TROUBLESHOOTING
+------------------------------
+- Confirm runcache_edge_settings now holds the expected provider record(s).
+- Confirm runcache_page_cache_settings, runcache_cdn_settings, and
+  runcache_cloudflare_settings were left untouched.
+- Check the RunCache log for 'Edge migration:' entries (status preserved, or
+  the both-active warning).
