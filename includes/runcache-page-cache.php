@@ -33,6 +33,13 @@ if (!defined('ABSPATH')) {
 
 // [RUNCACHE_INLINE: runcache-filter]
 
+// During CiviCRM's `cv flush`, $runcache_config is undefined in this local scope.
+// Initialize it from the settings already loaded in $GLOBALS.
+$runcache_config = $GLOBALS['runcache_config'] ?? null;
+if (!is_array($runcache_config)) {
+    return;
+}
+
 // Stop here when the generated cache_enabled value is false.
 if (array_key_exists('cache_enabled', $runcache_config) && !$runcache_config['cache_enabled']) {
     return;
